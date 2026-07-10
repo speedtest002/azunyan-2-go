@@ -11,6 +11,7 @@ var Commands = []discord.ApplicationCommandCreate{
 	pingCommand,
 	avatarCommand,
 	avatarUserCommand,
+	sleepCommand,
 }
 
 func Register(h handler.Router, b *azunyan2go.Bot) {
@@ -20,4 +21,6 @@ func Register(h handler.Router, b *azunyan2go.Bot) {
 
 	h.SlashCommand("/avatar", AvatarHandler)
 	h.UserCommand("/avatar", AvatarUserHandler)
+
+	h.SlashCommand("/sleep", SleepHandler)
 }
