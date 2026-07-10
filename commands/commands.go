@@ -9,10 +9,15 @@ import (
 var Commands = []discord.ApplicationCommandCreate{
 	versionCommand,
 	pingCommand,
+	avatarCommand,
+	avatarUserCommand,
 }
 
 func Register(h handler.Router, b *azunyan2go.Bot) {
 	h.Command("/version", VersionHandler(b))
 
 	h.Command("/ping", PingHandler)
+
+	h.SlashCommand("/avatar", AvatarHandler)
+	h.UserCommand("/avatar", AvatarUserHandler)
 }
