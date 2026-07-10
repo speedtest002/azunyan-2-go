@@ -12,6 +12,8 @@ var Commands = []discord.ApplicationCommandCreate{
 	avatarCommand,
 	avatarUserCommand,
 	sleepCommand,
+	whatanimeSlashCommand,
+	whatanimeMessageCommand,
 }
 
 func Register(h handler.Router, b *azunyan2go.Bot) {
@@ -23,4 +25,6 @@ func Register(h handler.Router, b *azunyan2go.Bot) {
 	h.UserCommand("/avatar", AvatarUserHandler)
 
 	h.SlashCommand("/sleep", SleepHandler)
+
+	h.Command("/whatanime", WhatanimeHandler(b))
 }
