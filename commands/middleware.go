@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/handler"
 )
 
@@ -14,6 +15,14 @@ func LoggingMiddleware(next handler.Handler) handler.Handler {
 		user := i.User()
 		guildID := i.GuildID()
 
+		cmdName := ""
+		if cmd, ok := i.(discord.ApplicationCommandInteraction); ok {
+			cmdName = cmd.Data.CommandName()
+			if slashData, ok := cmd.Data.(discord.SlashCommandInteractionData); ok {
+				cmdName = slashData.CommandPath()
+			}
+		}
+
 		start := time.Now()
 		err := next(e)
 
@@ -22,6 +31,9 @@ func LoggingMiddleware(next handler.Handler) handler.Handler {
 			slog.String("username", user.Tag()),
 			slog.String("interaction_type", fmt.Sprint(i.Type())),
 			slog.Duration("duration", time.Since(start)),
+		}
+		if cmdName != "" {
+			attrs = append(attrs, slog.String("command", cmdName))
 		}
 
 		if guildID != nil {
