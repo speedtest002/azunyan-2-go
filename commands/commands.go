@@ -14,6 +14,7 @@ var Commands = []discord.ApplicationCommandCreate{
 	sleepCommand,
 	whatanimeSlashCommand,
 	whatanimeMessageCommand,
+	qrCommand,
 }
 
 func Register(h handler.Router, b *azunyan2go.Bot) {
@@ -27,4 +28,9 @@ func Register(h handler.Router, b *azunyan2go.Bot) {
 	h.SlashCommand("/sleep", SleepHandler)
 
 	h.Command("/whatanime", WhatanimeHandler(b))
+
+	h.Route("/qr", func(cr handler.Router) {
+		cr.SlashCommand("/save", qrSaveHandler(b))
+		cr.SlashCommand("/send", qrSendHandler(b))
+	})
 }

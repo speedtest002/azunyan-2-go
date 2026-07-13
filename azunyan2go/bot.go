@@ -12,6 +12,8 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/paginator"
+
+	"github.com/speedtest002/azunyan-2-go/db"
 )
 
 func New(cfg Config, version string, commit string) *Bot {
@@ -27,8 +29,13 @@ type Bot struct {
 	Cfg       Config
 	Client    bot.Client
 	Paginator *paginator.Manager
-	Version   string
-	Commit    string
+	DB        *db.DB
+
+	Version string
+	Commit  string
+
+	Banks   []Bank
+	BankMap map[string]*Bank
 }
 
 func (b *Bot) SetupBot(listeners ...bot.EventListener) error {

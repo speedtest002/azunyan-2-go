@@ -13,6 +13,8 @@ import (
 
 	"github.com/speedtest002/azunyan-2-go/azunyan2go"
 	"github.com/speedtest002/azunyan-2-go/commands"
+	"github.com/speedtest002/azunyan-2-go/db"
+	"github.com/speedtest002/azunyan-2-go/handlers"
 )
 
 var (
@@ -40,12 +42,25 @@ func main() {
 	h := handler.New()
 	commands.Register(h, b)
 	h.Use(commands.LoggingMiddleware)
-	b.SetupBot(h)
+	b.SetupBot(h, handlers.FetchQrHandler(b), handlers.AutoQrHandler(b))
+
+	database, err := db.Connect(cfg.Database.User, cfg.Database.Password, cfg.Database.Dsn)
+	if err != nil {
+		slog.Error("DB connect failed", "err", err)
+		os.Exit(-1)
+	}
+	b.DB = database
+	slog.Info("Connected to DB")
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	b.DB.StartKeepAlive(ctx)
 
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		b.Client.Close(ctx)
+		b.DB.Close()
+		b.Client.Close(shutdownCtx)
 	}()
 
 	if *shouldSyncCommands {
@@ -55,17 +70,15 @@ func main() {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	gatewayCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err = b.Client.OpenGateway(ctx); err != nil {
+	if err = b.Client.OpenGateway(gatewayCtx); err != nil {
 		slog.Error("Failed to open gateway", slog.Any("err", err))
 		os.Exit(-1)
 	}
 
 	slog.Info("Bot is running. Press CTRL-C to exit.")
-	s := make(chan os.Signal, 1)
-	signal.Notify(s, syscall.SIGINT, syscall.SIGTERM)
-	<-s
+	<-ctx.Done()
 	slog.Info("Shutting down bot...")
 }
 
