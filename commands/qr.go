@@ -59,7 +59,7 @@ func qrSaveHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
 		accountNumber, _ := data.OptString("account_number")
 		bank, _ := data.OptString("bank")
 
-		err := b.DB.UpsertUserBankInfo(userId, accountNumber, bank)
+		err := b.DB.UpsertUserBankInfo(e.Ctx, userId, accountNumber, bank)
 		if err != nil {
 			return e.CreateMessage(discord.MessageCreate{Content: fmt.Sprintf("Error: %s", err)}.WithEphemeral(true))
 		}
@@ -71,7 +71,7 @@ func qrSaveHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
 func qrSendHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
 	return func(data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
 		userId := int64(e.User().ID)
-		userBankInfo, err := b.DB.GetUserBankInfo(userId)
+		userBankInfo, err := b.DB.GetUserBankInfo(e.Ctx, userId)
 		if err != nil {
 			return e.CreateMessage(discord.MessageCreate{Content: fmt.Sprintf("Error: %s", err)}.WithEphemeral(true))
 		}
