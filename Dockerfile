@@ -22,5 +22,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o bot github.com/speedtest002/azunyan-2-go
 
 FROM alpine
+RUN apk add --no-cache tzdata
 COPY --from=build /build/bot /bin/bot
 ENTRYPOINT ["/bin/bot"]
