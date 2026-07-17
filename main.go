@@ -56,6 +56,9 @@ func main() {
 	defer stop()
 	b.DB.StartKeepAlive(ctx)
 
+	b.Scheduler = azunyan2go.NewScheduler(b.DB, b.Client, 30 * time.Second)
+	b.Scheduler.Start()
+
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

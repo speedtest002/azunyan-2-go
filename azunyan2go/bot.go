@@ -36,6 +36,8 @@ type Bot struct {
 
 	Banks   []Bank
 	BankMap map[string]*Bank
+
+	Scheduler *Scheduler
 }
 
 func (b *Bot) SetupBot(listeners ...bot.EventListener) error {

@@ -19,6 +19,7 @@ require (
 	github.com/klauspost/compress v1.19.0 // indirect
 	github.com/sasha-s/go-csync v0.0.0-20240107134140-fcbab37b09ad // indirect
 	github.com/sijms/go-ora/v2 v2.9.0 // indirect
+	github.com/zekroTJA/shinpuru v0.0.0-20260318014313-ed714cf1553c // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 )
