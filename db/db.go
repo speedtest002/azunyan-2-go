@@ -17,8 +17,14 @@ type DB struct {
 }
 
 func Connect(user, password, dsn string) (*DB, error) {
-	connStr := fmt.Sprintf("oracle://%s:%s@%s", url.QueryEscape(user), url.QueryEscape(password), dsn)
-	sqlDB, err := sql.Open("oracle", connStr)
+	u := &url.URL{
+		Scheme: "oracle",
+		User:   url.UserPassword(user, password),
+		Host:   "localhost:1521",
+	}
+	u.RawQuery = "connStr=" + url.QueryEscape(dsn)
+
+	sqlDB, err := sql.Open("oracle", u.String())
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open: %w", err)
 	}
