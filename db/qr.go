@@ -31,5 +31,8 @@ func (d *DB) GetUserBankInfo(ctx context.Context, userID int64) (UserBankInfo, e
 	err := d.QueryRowContext(ctx, "SELECT user_id, account_number, bank FROM user_bank_info WHERE user_id = :user_id",
 		sql.Named("user_id", userID),
 	).Scan(&info.UserID, &info.AccountNumber, &info.Bank)
+	if err == sql.ErrNoRows {
+		return info, nil
+	}
 	return info, err
 }

@@ -47,7 +47,12 @@ func AutoQrHandler(b *azunyan2go.Bot) bot.EventListener {
 		}
 
 		url := fmt.Sprintf("https://img.vietqr.io/image/%s-%s-print.jpg", bank.Bin, stk)
-		embed := discord.NewEmbed().WithImage(url).WithColor(0x00FFFF).WithAuthor(*e.Message.Author.GlobalName, "", "")
+
+		name := e.Message.Author.Username
+		if e.Message.Author.GlobalName != nil {
+			name = *e.Message.Author.GlobalName
+		}
+		embed := discord.NewEmbed().WithImage(url).WithColor(0x00FFFF).WithAuthor(name, "", "")
 		e.Client().Rest.CreateMessage(e.ChannelID, discord.NewMessageCreate().AddEmbeds(embed))
 	})
 }

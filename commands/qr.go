@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strconv"
 
@@ -70,15 +71,19 @@ func qrSaveHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
 
 func qrSendHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
 	return func(data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
-		userId := int64(e.User().ID)
-		userBankInfo, err := b.DB.GetUserBankInfo(e.Ctx, userId)
+		userID := int64(e.User().ID)
+		userBankInfo, err := b.DB.GetUserBankInfo(e.Ctx, userID)
 		if err != nil {
-			return e.CreateMessage(discord.MessageCreate{Content: fmt.Sprintf("Error: %s", err)}.WithEphemeral(true))
+			slog.Error("failed when get user bank info", "error", err, "user_id", userID)
+			return e.CreateMessage(discord.MessageCreate{Content: "error... thử lại sao"}.WithEphemeral(true))
+		}
+		if userBankInfo.AccountNumber == "" || userBankInfo.Bank == "" {
+			return e.CreateMessage(discord.MessageCreate{Content: "you have not saved your bank info yet, use `/qr save`"}.WithEphemeral(true))
 		}
 
 		params := url.Values{}
 
-		if amount, ok := data.OptInt("ammount"); ok {
+		if amount, ok := data.OptInt("amount"); ok {
 			params.Set("amount", strconv.Itoa(amount))
 		}
 
