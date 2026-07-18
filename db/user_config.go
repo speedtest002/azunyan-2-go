@@ -14,7 +14,7 @@ type UserConfig struct {
 	UpdatedAt time.Time `db:"UPDATED_AT"`
 }
 
-// Upsert User's Timezone 
+// Upsert User's Timezone
 func (d *DB) SetUserTimezone(ctx context.Context, userID int64, timezone string) error {
 	if _, err := time.LoadLocation(timezone); err != nil {
 		return fmt.Errorf("timezone không hợp lệ %q: %w", timezone, err)
@@ -43,9 +43,9 @@ func (d *DB) GetUserLocation(ctx context.Context, userID int64, defaultTimezone 
 	`, sql.Named("user_id", userID)).Scan(&tz)
 
 	if defaultTimezone == nil {
-        defaultTimezone, _ = time.LoadLocation("Asia/Ho_Chi_Minh")
-    }
-	
+		defaultTimezone, _ = time.LoadLocation("Asia/Ho_Chi_Minh")
+	}
+
 	if err == sql.ErrNoRows {
 		return defaultTimezone, nil
 	}

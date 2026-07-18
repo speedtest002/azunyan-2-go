@@ -59,7 +59,7 @@ func (d *DB) GetPendingUserReminders(ctx context.Context, from, to time.Time) ([
 		return userReminder, err
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var r UserReminder
 		var guildID sql.NullInt64
@@ -113,7 +113,7 @@ func (d *DB) GetUserReminders(ctx context.Context, userID int64, channelID *int6
 		return userReminder, err
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var r UserReminder
 		var guildID sql.NullInt64
@@ -150,37 +150,37 @@ func (d *DB) GetUserReminders(ctx context.Context, userID int64, channelID *int6
 }
 
 func (d *DB) ClaimUserReminder(ctx context.Context, id int64) (userID int64, message string, channelID int64, dueAt time.Time, claimed bool, err error) {
-    res, err := d.ExecContext(ctx, `
+	res, err := d.ExecContext(ctx, `
         UPDATE USER_REMINDER
         SET STATUS = 'PROCESSING', CLAIMED_AT = SYSTIMESTAMP
         WHERE ID = :id AND STATUS = 'PENDING'
     `,
-        sql.Named("id", id),
-    )
-    if err != nil {
-        return 0, "", 0, time.Time{}, false, err
-    }
+		sql.Named("id", id),
+	)
+	if err != nil {
+		return 0, "", 0, time.Time{}, false, err
+	}
 
-    rowsAffected, err := res.RowsAffected()
-    if err != nil {
-        return 0, "", 0, time.Time{}, false, err
-    }
-    if rowsAffected == 0 {
-        return 0, "", 0, time.Time{}, false, nil
-    }
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return 0, "", 0, time.Time{}, false, err
+	}
+	if rowsAffected == 0 {
+		return 0, "", 0, time.Time{}, false, nil
+	}
 
-    err = d.QueryRowContext(ctx, `
+	err = d.QueryRowContext(ctx, `
         SELECT USER_ID, CONTENT, CHANNEL_ID, DUE_AT
         FROM USER_REMINDER
         WHERE ID = :id
     `,
-        sql.Named("id", id),
-    ).Scan(&userID, &message, &channelID, &dueAt)
-    if err != nil {
-        return 0, "", 0, time.Time{}, false, err
-    }
+		sql.Named("id", id),
+	).Scan(&userID, &message, &channelID, &dueAt)
+	if err != nil {
+		return 0, "", 0, time.Time{}, false, err
+	}
 
-    return userID, message, channelID, dueAt, true, nil
+	return userID, message, channelID, dueAt, true, nil
 }
 
 // STATUS must be in ['PENDING', 'PROCESSING', 'SENT', 'FAILED', 'CANCELLED']
@@ -201,7 +201,7 @@ func (d *DB) CancelUserReminder(ctx context.Context, reminderID, userID int64) e
 		UPDATE USER_REMINDER
 		SET STATUS = 'CANCELLED'
 		WHERE ID = :id AND USER_ID = :userID
-	`,	
+	`,
 		sql.Named("id", reminderID),
 		sql.Named("userID", userID),
 	)

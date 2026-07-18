@@ -15,57 +15,57 @@ import (
 )
 
 type Scheduler struct {
-    db       *db.DB
+	db       *db.DB
 	client   bot.Client
-    interval time.Duration   // 30s
-    window   time.Duration   // interval * 3 (90s)
-    ctx      context.Context
-    cancel   context.CancelFunc
-    wg       sync.WaitGroup
+	interval time.Duration // 30s
+	window   time.Duration // interval * 3 (90s)
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 }
 
 func NewScheduler(db *db.DB, client bot.Client, interval time.Duration) *Scheduler {
-    ctx, cancel := context.WithCancel(context.Background())
-    return &Scheduler{
-        db:       db,
-		client: client,
-        interval: interval,
-        window:   interval * 3,
-        ctx:      ctx,
-        cancel:   cancel,
-    }
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Scheduler{
+		db:       db,
+		client:   client,
+		interval: interval,
+		window:   interval * 3,
+		ctx:      ctx,
+		cancel:   cancel,
+	}
 }
 
 func (s *Scheduler) Start() {
-    s.wg.Add(1)
-    go func() {
-        defer s.wg.Done()
-        s.loadAndSchedule()
-        
-        ticker := time.NewTicker(s.interval)
-        defer ticker.Stop()
-        
-        for {
-            select {
-            case <-ticker.C:
-                s.loadAndSchedule()
-            case <-s.ctx.Done():
-                return
-            }
-        }
-    }()
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.loadAndSchedule()
+
+		ticker := time.NewTicker(s.interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				s.loadAndSchedule()
+			case <-s.ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 func (s *Scheduler) loadAndSchedule() {
-    now := time.Now()
-    reminders, err := s.db.GetPendingUserReminders(s.ctx, now, now.Add(s.window))
+	now := time.Now()
+	reminders, err := s.db.GetPendingUserReminders(s.ctx, now, now.Add(s.window))
 	if err != nil {
 		slog.Error("failed when load pending reminder", "err", err)
 		return
 	}
-    for _, r := range reminders {
-        s.scheduleReminder(r.ID, r.DueAt)
-    }
+	for _, r := range reminders {
+		s.scheduleReminder(r.ID, r.DueAt)
+	}
 }
 
 func (s *Scheduler) scheduleReminder(id int64, dueAt time.Time) {
@@ -74,7 +74,7 @@ func (s *Scheduler) scheduleReminder(id int64, dueAt time.Time) {
 		s.claimAndSend(id)
 		return
 	}
-	time.AfterFunc(d,  func() {
+	time.AfterFunc(d, func() {
 		s.claimAndSend(id)
 	})
 }
@@ -121,9 +121,9 @@ func (s *Scheduler) CreateReminder(userID int64, channelID int64, guildID *int64
 	if err != nil {
 		slog.Error("failed to create reminder", "reminder_id", id, "err", err)
 	}
-	if time.Until(dueAt) <= (s.interval - 1 * time.Second) {
+	if time.Until(dueAt) <= (s.interval - 1*time.Second) {
 		s.scheduleReminder(id, dueAt)
-	} 
+	}
 	return id, err
 }
 
@@ -135,7 +135,7 @@ func (s *Scheduler) CancelReminder(reminderID, userID int64) (err error) {
 	return err
 }
 
-func (s *Scheduler) GetReminders(userID int64, channelID *int64) (ur []db.UserReminder ,err error) {
+func (s *Scheduler) GetReminders(userID int64, channelID *int64) (ur []db.UserReminder, err error) {
 	ur, err = s.db.GetUserReminders(s.ctx, userID, channelID)
 	if err != nil {
 		slog.Error("failed to get reminders", "error", err)
@@ -145,6 +145,6 @@ func (s *Scheduler) GetReminders(userID int64, channelID *int64) (ur []db.UserRe
 }
 
 func (s *Scheduler) Shutdown() {
-    s.cancel()
-    s.wg.Wait()
+	s.cancel()
+	s.wg.Wait()
 }
