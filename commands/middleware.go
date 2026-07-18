@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -16,10 +17,40 @@ func LoggingMiddleware(next handler.Handler) handler.Handler {
 		guildID := i.GuildID()
 
 		cmdName := ""
+		var paramAttrs []any
 		if cmd, ok := i.(discord.ApplicationCommandInteraction); ok {
 			cmdName = cmd.Data.CommandName()
 			if slashData, ok := cmd.Data.(discord.SlashCommandInteractionData); ok {
 				cmdName = slashData.CommandPath()
+
+				if slashData.SubCommandGroupName != nil {
+					paramAttrs = append(paramAttrs, slog.String("sub_group", *slashData.SubCommandGroupName))
+				}
+				if slashData.SubCommandName != nil {
+					paramAttrs = append(paramAttrs, slog.String("sub_command", *slashData.SubCommandName))
+				}
+
+				for _, opt := range slashData.All() {
+					var val string
+					switch opt.Type {
+					case discord.ApplicationCommandOptionTypeString:
+						val = opt.String()
+					case discord.ApplicationCommandOptionTypeInt:
+						val = strconv.Itoa(opt.Int())
+					case discord.ApplicationCommandOptionTypeBool:
+						val = strconv.FormatBool(opt.Bool())
+					case discord.ApplicationCommandOptionTypeFloat:
+						val = strconv.FormatFloat(opt.Float(), 'f', -1, 64)
+					case discord.ApplicationCommandOptionTypeUser,
+						discord.ApplicationCommandOptionTypeChannel,
+						discord.ApplicationCommandOptionTypeRole,
+						discord.ApplicationCommandOptionTypeMentionable:
+						val = opt.Snowflake().String()
+					default:
+						val = string(opt.Value)
+					}
+					paramAttrs = append(paramAttrs, slog.String("param_"+opt.Name, val))
+				}
 			}
 		}
 
@@ -39,6 +70,8 @@ func LoggingMiddleware(next handler.Handler) handler.Handler {
 		if guildID != nil {
 			attrs = append(attrs, slog.String("guild_id", guildID.String()))
 		}
+
+		attrs = append(attrs, paramAttrs...)
 
 		if err != nil {
 			attrs = append(attrs, slog.Any("err", err))
