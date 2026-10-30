@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 )
 
@@ -16,6 +17,11 @@ type UserReminder struct {
 	Status    string     `db:"STATUS"`
 	CreatedAt time.Time  `db:"CREATED_AT"`
 	ClaimedAt *time.Time `db:"CLAIMED_AT"`
+}
+
+type UserReminderPing struct {
+	ReminderId int64 `db:"REMINDER_ID"`
+	UserID     int64 `db:"USER_ID"`
 }
 
 // insert a reminder with status default "PENDING"
@@ -37,26 +43,25 @@ func (d *DB) CreateUserReminder(ctx context.Context, userID, channelID int64, gu
 		sql.Named("new_id", sql.Out{Dest: &newID}),
 	)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("db.CreateUserReminder: %w", err)
 	}
 	return newID, nil
 }
 
-func (d *DB) GetPendingUserReminders(ctx context.Context, from, to time.Time) ([]UserReminder, error) {
+func (d *DB) GetPendingUserReminders(ctx context.Context, until time.Time) ([]UserReminder, error) {
 	userReminder := make([]UserReminder, 0, 10)
 
 	rows, err := d.QueryContext(ctx, `
 		SELECT ID, USER_ID, GUILD_ID, CHANNEL_ID, CONTENT, DUE_AT, STATUS, CREATED_AT, CLAIMED_AT
 		FROM USER_REMINDER
 		WHERE 	STATUS = 'PENDING'
-			AND DUE_AT > :since AND DUE_AT <= :until
+			AND DUE_AT <= :until
 		ORDER BY DUE_AT
 	`,
-		sql.Named("since", from),
-		sql.Named("until", to),
+		sql.Named("until", until),
 	)
 	if err != nil {
-		return userReminder, err
+		return userReminder, fmt.Errorf("db.GetPendingUserReminders query: %w", err)
 	}
 	defer rows.Close()
 
@@ -77,7 +82,7 @@ func (d *DB) GetPendingUserReminders(ctx context.Context, from, to time.Time) ([
 			&claimedAt,
 		)
 		if err != nil {
-			return userReminder, err
+			return userReminder, fmt.Errorf("db.GetPendingUserReminders scan: %w", err)
 		}
 
 		if guildID.Valid {
@@ -89,7 +94,7 @@ func (d *DB) GetPendingUserReminders(ctx context.Context, from, to time.Time) ([
 		userReminder = append(userReminder, r)
 	}
 	if err = rows.Err(); err != nil {
-		return userReminder, err
+		return userReminder, fmt.Errorf("db.GetPendingUserReminders rows: %w", err)
 	}
 
 	return userReminder, nil
@@ -110,7 +115,7 @@ func (d *DB) GetUserReminders(ctx context.Context, userID int64, channelID *int6
 		sql.Named("channel_id", channelID),
 	)
 	if err != nil {
-		return userReminder, err
+		return userReminder, fmt.Errorf("db.GetUserReminders query: %w", err)
 	}
 	defer rows.Close()
 
@@ -131,7 +136,7 @@ func (d *DB) GetUserReminders(ctx context.Context, userID int64, channelID *int6
 			&claimedAt,
 		)
 		if err != nil {
-			return userReminder, err
+			return userReminder, fmt.Errorf("db.GetUserReminders scan: %w", err)
 		}
 
 		if guildID.Valid {
@@ -143,27 +148,27 @@ func (d *DB) GetUserReminders(ctx context.Context, userID int64, channelID *int6
 		userReminder = append(userReminder, r)
 	}
 	if err = rows.Err(); err != nil {
-		return userReminder, err
+		return userReminder, fmt.Errorf("db.GetUserReminders rows: %w", err)
 	}
 
 	return userReminder, nil
 }
 
-func (d *DB) ClaimUserReminder(ctx context.Context, id int64) (userID int64, message string, channelID int64, dueAt time.Time, claimed bool, err error) {
+func (d *DB) ClaimUserReminder(ctx context.Context, reminderID int64) (userID int64, message string, channelID int64, dueAt time.Time, claimed bool, err error) {
 	res, err := d.ExecContext(ctx, `
         UPDATE USER_REMINDER
         SET STATUS = 'PROCESSING', CLAIMED_AT = SYSTIMESTAMP
         WHERE ID = :id AND STATUS = 'PENDING'
     `,
-		sql.Named("id", id),
+		sql.Named("id", reminderID),
 	)
 	if err != nil {
-		return 0, "", 0, time.Time{}, false, err
+		return 0, "", 0, time.Time{}, false, fmt.Errorf("db.ClaimUserReminder update: %w", err)
 	}
 
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return 0, "", 0, time.Time{}, false, err
+		return 0, "", 0, time.Time{}, false, fmt.Errorf("db.ClaimUserReminder rowsAffected: %w", err)
 	}
 	if rowsAffected == 0 {
 		return 0, "", 0, time.Time{}, false, nil
@@ -174,10 +179,10 @@ func (d *DB) ClaimUserReminder(ctx context.Context, id int64) (userID int64, mes
         FROM USER_REMINDER
         WHERE ID = :id
     `,
-		sql.Named("id", id),
+		sql.Named("id", reminderID),
 	).Scan(&userID, &message, &channelID, &dueAt)
 	if err != nil {
-		return 0, "", 0, time.Time{}, false, err
+		return 0, "", 0, time.Time{}, false, fmt.Errorf("db.ClaimUserReminder select: %w", err)
 	}
 
 	return userID, message, channelID, dueAt, true, nil
@@ -193,17 +198,113 @@ func (d *DB) UpdateStatusUserReminder(ctx context.Context, reminderID int64, sta
 		sql.Named("id", reminderID),
 		sql.Named("status", status),
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("db.UpdateStatusUserReminder: %w", err)
+	}
+	return nil
 }
 
-func (d *DB) CancelUserReminder(ctx context.Context, reminderID, userID int64) error {
-	_, err := d.ExecContext(ctx, `
+func (d *DB) CancelUserReminder(ctx context.Context, reminderID, userID int64) (cancelled bool, err error) {
+	res, err := d.ExecContext(ctx, `
 		UPDATE USER_REMINDER
 		SET STATUS = 'CANCELLED'
-		WHERE ID = :id AND USER_ID = :userID
+		WHERE ID = :id AND USER_ID = :userID AND STATUS = 'PENDING'
 	`,
 		sql.Named("id", reminderID),
 		sql.Named("userID", userID),
 	)
-	return err
+	if err != nil {
+		return false, fmt.Errorf("db.CancelUserReminder: %w", err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("db.CancelUserReminder rowsAffected: %w", err)
+	}
+
+	return rowsAffected > 0, nil
+}
+
+func (d *DB) GetUsersReminderPing(ctx context.Context, reminderID int64) (userIDs []int64, err error) {
+	rows, err := d.QueryContext(ctx, `
+		SELECT USER_ID
+		FROM USER_REMINDER_PING
+		WHERE REMINDER_ID = :reminder_id
+	`,
+		sql.Named("reminder_id", reminderID),
+	)
+
+	if err != nil {
+		return userIDs, fmt.Errorf("db.GetUsersReminderPing query: %w", err)
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var userID int64
+		err := rows.Scan(&userID)
+		if err != nil {
+			return userIDs, fmt.Errorf("db.GetUsersReminderPing scan: %w", err)
+		}
+		userIDs = append(userIDs, userID)
+	}
+
+	if err = rows.Err(); err != nil {
+		return userIDs, fmt.Errorf("db.GetUsersReminderPing rows: %w", err)
+	}
+
+	return userIDs, nil
+}
+
+func (d *DB) AddUserReminderPing(ctx context.Context, reminderID, userID int64) (added bool, err error) {
+	res, err := d.ExecContext(ctx, `
+		INSERT INTO USER_REMINDER_PING
+			(REMINDER_ID, USER_ID)
+		SELECT :reminder_id, :user_id FROM DUAL
+		WHERE NOT EXISTS (
+			SELECT 1 FROM USER_REMINDER_PING
+			WHERE REMINDER_ID = :reminder_id AND USER_ID = :user_id
+		)
+		AND EXISTS (
+			SELECT 1 FROM USER_REMINDER
+			WHERE ID = :reminder_id AND STATUS = 'PENDING'
+		)
+	`,
+		sql.Named("user_id", userID),
+		sql.Named("reminder_id", reminderID),
+	)
+	if err != nil {
+		return false, fmt.Errorf("db.AddUserReminderPing: %w", err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("db.AddUserReminderPing rowsAffected: %w", err)
+	}
+
+	return rowsAffected > 0, nil
+}
+
+func (d *DB) RemoveUserReminderPing(ctx context.Context, reminderID, userID int64) (removed bool, err error) {
+	res, err := d.ExecContext(ctx, `
+		DELETE FROM USER_REMINDER_PING
+		WHERE REMINDER_ID = :reminder_id AND USER_ID = :user_id
+		AND EXISTS (
+			SELECT 1 FROM USER_REMINDER
+			WHERE ID = :reminder_id AND STATUS = 'PENDING'
+		)
+	`,
+		sql.Named("user_id", userID),
+		sql.Named("reminder_id", reminderID),
+	)
+	if err != nil {
+		return false, fmt.Errorf("db.RemoveUserReminderPing: %w", err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("db.RemoveUserReminderPing rowsAffected: %w", err)
+	}
+
+	return rowsAffected > 0, nil
 }

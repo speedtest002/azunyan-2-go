@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 type UserBankInfo struct {
@@ -23,7 +24,10 @@ func (d *DB) UpsertUserBankInfo(ctx context.Context, userID int64, accountNumber
 		sql.Named("account_number", accountNumber),
 		sql.Named("bank", bank),
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("db.UpsertUserBankInfo: %w", err)
+	}
+	return nil
 }
 
 func (d *DB) GetUserBankInfo(ctx context.Context, userID int64) (UserBankInfo, error) {
@@ -34,5 +38,8 @@ func (d *DB) GetUserBankInfo(ctx context.Context, userID int64) (UserBankInfo, e
 	if err == sql.ErrNoRows {
 		return info, nil
 	}
-	return info, err
+	if err != nil {
+		return info, fmt.Errorf("db.GetUserBankInfo: %w", err)
+	}
+	return info, nil
 }

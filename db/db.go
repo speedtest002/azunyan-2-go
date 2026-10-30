@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 	"time"
 
 	_ "github.com/sijms/go-ora/v2"
@@ -17,20 +18,32 @@ type DB struct {
 }
 
 func Connect(user, password, dsn string) (*DB, error) {
-	u := &url.URL{
-		Scheme: "oracle",
-		User:   url.UserPassword(user, password),
-		Host:   "localhost:1521",
+	dsn = strings.TrimSpace(dsn)
+	var u *url.URL
+	if strings.HasPrefix(dsn, "(") {
+		u = &url.URL{
+			Scheme:   "oracle",
+			User:     url.UserPassword(user, password),
+			Host:     "localhost:1521",
+			RawQuery: "connStr=" + url.QueryEscape(dsn),
+		}
+	} else {
+		host, service, _ := strings.Cut(dsn, "/")
+		u = &url.URL{
+			Scheme: "oracle",
+			User:   url.UserPassword(user, password),
+			Host:   host,
+			Path:   "/" + service,
+		}
 	}
-	u.RawQuery = "connStr=" + url.QueryEscape(dsn)
 
 	sqlDB, err := sql.Open("oracle", u.String())
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open: %w", err)
 	}
 
-	sqlDB.SetMaxOpenConns(5)
-	sqlDB.SetMaxIdleConns(2)
+	sqlDB.SetMaxOpenConns(3)
+	sqlDB.SetMaxIdleConns(1)
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
@@ -69,8 +82,6 @@ func (db *DB) healthCheck(ctx context.Context) {
 	if err := db.QueryRowContext(queryCtx, "SELECT 1 FROM DUAL").Scan(new(int)); err != nil {
 		slog.Warn("DB health check failed, retrying with backoff", "err", err)
 		db.reconnectWithBackoff(ctx)
-	} else {
-		slog.Info("DB health check OK")
 	}
 }
 

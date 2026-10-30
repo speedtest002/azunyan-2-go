@@ -33,7 +33,10 @@ func (d *DB) SetUserTimezone(ctx context.Context, userID int64, timezone string)
 		sql.Named("user_id", userID),
 		sql.Named("timezone", timezone),
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("db.SetUserTimezone: %w", err)
+	}
+	return nil
 }
 
 func (d *DB) GetUserLocation(ctx context.Context, userID int64, defaultTimezone *time.Location) (*time.Location, error) {
@@ -50,7 +53,7 @@ func (d *DB) GetUserLocation(ctx context.Context, userID int64, defaultTimezone 
 		return defaultTimezone, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("db.GetUserLocation: %w", err)
 	}
 
 	loc, err := time.LoadLocation(tz)
