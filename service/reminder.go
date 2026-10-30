@@ -1,9 +1,10 @@
-package azunyan2go
+package service
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,7 +19,6 @@ type Scheduler struct {
 	db       *db.DB
 	client   bot.Client
 	interval time.Duration // 30s
-	window   time.Duration // interval * 3 (90s)
 	ctx      context.Context
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
@@ -30,7 +30,6 @@ func NewScheduler(db *db.DB, client bot.Client, interval time.Duration) *Schedul
 		db:       db,
 		client:   client,
 		interval: interval,
-		window:   interval * 3,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -57,10 +56,9 @@ func (s *Scheduler) Start() {
 }
 
 func (s *Scheduler) loadAndSchedule() {
-	now := time.Now()
-	reminders, err := s.db.GetPendingUserReminders(s.ctx, now, now.Add(s.window))
+	reminders, err := s.db.GetPendingUserReminders(s.ctx, time.Now().Add(s.interval))
 	if err != nil {
-		slog.Error("failed when load pending reminder", "err", err)
+		slog.Error("scheduler: failed to load pending reminders", "err", err)
 		return
 	}
 	for _, r := range reminders {
@@ -68,23 +66,23 @@ func (s *Scheduler) loadAndSchedule() {
 	}
 }
 
-func (s *Scheduler) scheduleReminder(id int64, dueAt time.Time) {
+func (s *Scheduler) scheduleReminder(reminderID int64, dueAt time.Time) {
 	d := time.Until(dueAt)
 	if d <= 0 {
-		s.claimAndSend(id)
+		s.claimAndSend(reminderID)
 		return
 	}
 	time.AfterFunc(d, func() {
-		s.claimAndSend(id)
+		s.claimAndSend(reminderID)
 	})
 }
 
-func (s *Scheduler) claimAndSend(id int64) {
+func (s *Scheduler) claimAndSend(reminderID int64) {
 	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel()
-	userID, message, channelID, dueAt, claimed, err := s.db.ClaimUserReminder(ctx, id)
+	userID, message, channelID, dueAt, claimed, err := s.db.ClaimUserReminder(ctx, reminderID)
 	if err != nil {
-		slog.Error("failed to claim remider", "error", err)
+		slog.Error("scheduler: failed to claim reminder", "reminder_id", reminderID, "err", err)
 		return
 	}
 	if !claimed {
@@ -94,54 +92,51 @@ func (s *Scheduler) claimAndSend(id int64) {
 	embed := discord.NewEmbed().
 		WithDescription(message).
 		WithColor(0x00FFFF).
-		WithFooterText(fmt.Sprintf("ID: %d - %s", id, hammertime.Format(dueAt, hammertime.Span)))
+		WithFooterText(fmt.Sprintf("ID: %d - %s", reminderID, hammertime.Format(dueAt, hammertime.Span)))
+
+	var usersGetRemind strings.Builder
+	usersGetRemind.WriteString(fmt.Sprintf("<@%d>", userID)) // reminder's owner
+
+	usersIDGetRemind, err := s.db.GetUsersReminderPing(ctx, reminderID)
+	if err != nil {
+		slog.Error("scheduler: failed to get reminder pings", "reminder_id", reminderID, "err", err)
+	} else {
+		for _, userIDGetRemind := range usersIDGetRemind {
+			if userIDGetRemind != userID {
+				usersGetRemind.WriteString(fmt.Sprintf(", <@%d>", userIDGetRemind))
+			}
+		}
+	}
 
 	_, err = s.client.Rest.CreateMessage(
 		snowflake.ID(channelID),
 		discord.NewMessageCreate().
-			WithContent(fmt.Sprintf("<@%d>", userID)).
+			WithContent(usersGetRemind.String()).
 			AddEmbeds(embed).
 			WithAllowedMentions(&discord.AllowedMentions{Parse: []discord.AllowedMentionType{discord.AllowedMentionTypeUsers}}),
 	)
 	if err != nil {
-		slog.Error("failed to send reminder", "reminder_id", id, "channel_id", channelID, "err", err)
-		if err = s.db.UpdateStatusUserReminder(ctx, id, "FAILED"); err != nil {
-			slog.Error("failed to mark reminder as FAILED", "reminder_id", id, "err", err)
+		slog.Error("scheduler: failed to send reminder message", "reminder_id", reminderID, "channel_id", channelID, "user_id", userID, "err", err)
+		if err = s.db.UpdateStatusUserReminder(ctx, reminderID, "FAILED"); err != nil {
+			slog.Error("scheduler: failed to update reminder status", "reminder_id", reminderID, "status", "FAILED", "err", err)
 		}
 		return
 	}
 
-	if err = s.db.UpdateStatusUserReminder(ctx, id, "SENT"); err != nil {
-		slog.Error("failed to mark reminder as SENT", "reminder_id", id, "err", err)
+	if err = s.db.UpdateStatusUserReminder(ctx, reminderID, "SENT"); err != nil {
+		slog.Error("scheduler: failed to update reminder status", "reminder_id", reminderID, "status", "SENT", "err", err)
 	}
 }
 
-func (s *Scheduler) CreateReminder(userID int64, channelID int64, guildID *int64, message string, dueAt time.Time) (id int64, err error) {
-	id, err = s.db.CreateUserReminder(s.ctx, userID, channelID, guildID, message, dueAt)
+func (s *Scheduler) CreateReminder(ctx context.Context, userID int64, channelID int64, guildID *int64, message string, dueAt time.Time) (id int64, err error) {
+	id, err = s.db.CreateUserReminder(ctx, userID, channelID, guildID, message, dueAt)
 	if err != nil {
-		slog.Error("failed to create reminder", "reminder_id", id, "err", err)
+		return 0, fmt.Errorf("service.CreateReminder: %w", err)
 	}
 	if time.Until(dueAt) <= (s.interval - 1*time.Second) {
 		s.scheduleReminder(id, dueAt)
 	}
-	return id, err
-}
-
-func (s *Scheduler) CancelReminder(reminderID, userID int64) (err error) {
-	err = s.db.CancelUserReminder(s.ctx, reminderID, userID)
-	if err != nil {
-		slog.Error("failed to cancel reminder", "reminder_id", reminderID, "err", err)
-	}
-	return err
-}
-
-func (s *Scheduler) GetReminders(userID int64, channelID *int64) (ur []db.UserReminder, err error) {
-	ur, err = s.db.GetUserReminders(s.ctx, userID, channelID)
-	if err != nil {
-		slog.Error("failed to get reminders", "error", err)
-		return nil, err
-	}
-	return ur, nil
+	return id, nil
 }
 
 func (s *Scheduler) Shutdown() {
