@@ -1,4 +1,4 @@
-package commands
+package middleware
 
 import (
 	"fmt"
@@ -52,6 +52,8 @@ func LoggingMiddleware(next handler.Handler) handler.Handler {
 					paramAttrs = append(paramAttrs, slog.String("param_"+opt.Name, val))
 				}
 			}
+		} else if comp, ok := i.(discord.ComponentInteraction); ok {
+			cmdName = comp.Data.CustomID()
 		}
 
 		start := time.Now()
@@ -60,6 +62,7 @@ func LoggingMiddleware(next handler.Handler) handler.Handler {
 		attrs := []any{
 			slog.String("user_id", user.ID.String()),
 			slog.String("username", user.Tag()),
+			slog.String("channel_id", i.Channel().ID().String()),
 			slog.String("interaction_type", fmt.Sprint(i.Type())),
 			slog.Duration("duration", time.Since(start)),
 		}
@@ -80,6 +83,6 @@ func LoggingMiddleware(next handler.Handler) handler.Handler {
 			slog.Info("interaction handled", attrs...)
 		}
 
-		return err
+		return nil
 	}
 }
