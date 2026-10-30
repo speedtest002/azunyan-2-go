@@ -2,18 +2,21 @@ package commands
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/json"
-	"github.com/speedtest002/azunyan-2-go/azunyan2go"
 	"github.com/zekroTJA/shinpuru/pkg/hammertime"
+
+	"github.com/speedtest002/azunyan-2-go/db"
+	"github.com/speedtest002/azunyan-2-go/service"
 )
 
 var reminderCommand = discord.SlashCommandCreate{
-	Name:        "remind",
+	Name:        "reminder",
 	Description: "Viktor E",
 	Options: []discord.ApplicationCommandOption{
 		discord.ApplicationCommandOptionSubCommand{
@@ -38,6 +41,12 @@ var reminderCommand = discord.SlashCommandCreate{
 					MaxLength:   json.Ptr(10),
 					Required:    false,
 				},
+				discord.ApplicationCommandOptionBool{
+					Name:        "ephemeral",
+					Description: "only you can see this message (default is false)",
+					Required:    false,
+				},
+
 			},
 		},
 		discord.ApplicationCommandOptionSubCommand{
@@ -51,7 +60,7 @@ var reminderCommand = discord.SlashCommandCreate{
 				},
 				discord.ApplicationCommandOptionBool{
 					Name:        "ephemeral",
-					Description: "only you can see this message",
+					Description: "only you can see this message (default is false)",
 					Required:    false,
 				},
 			},
@@ -71,7 +80,7 @@ var reminderCommand = discord.SlashCommandCreate{
 	},
 }
 
-func reminderCreateHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
+func reminderCreateHandler(database *db.DB, scheduler *service.Scheduler) handler.SlashCommandHandler {
 	return func(data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
 		timeStr, ok := data.OptString("time")
 		if !ok {
@@ -82,10 +91,17 @@ func reminderCreateHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
 		if !ok {
 			dateStr = ""
 		}
+
+		isEphemeral, ok := data.OptBool("ephemeral")
+		if !ok {
+			isEphemeral = false
+		}
+
 		userID := int64(e.User().ID)
-		userTimezone, err := b.DB.GetUserLocation(e.Ctx, userID, nil)
+		userTimezone, err := database.GetUserLocation(e.Ctx, userID, nil)
 		if err != nil {
-			return e.CreateMessage(discord.MessageCreate{Content: fmt.Sprintf("failed to get your timezone: %v", err)}.WithEphemeral(true))
+			_ = e.CreateMessage(discord.MessageCreate{Content: "failed to get your timezone, please try again later"}.WithEphemeral(true))
+			return err
 		}
 		now := time.Now()
 		dueAt, err := ParseDueAt(timeStr, dateStr, userTimezone, now)
@@ -104,30 +120,45 @@ func reminderCreateHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
 			return e.CreateMessage(discord.MessageCreate{Content: "`content` is required!"}.WithEphemeral(true))
 		}
 
-		reminderId, err := b.Scheduler.CreateReminder(userID, channelID, guildID, content, dueAt)
+		reminderId, err := scheduler.CreateReminder(e.Ctx, userID, channelID, guildID, content, dueAt)
 		if err != nil {
-			return e.CreateMessage(discord.MessageCreate{Content: "there was an error saving your reminder"}.WithEphemeral(true))
+			_ = e.CreateMessage(discord.MessageCreate{Content: "there was an error saving your reminder"}.WithEphemeral(true))
+			return err
 		}
-		return e.CreateMessage(discord.MessageCreate{Content: fmt.Sprintf("saved! your reminder id is `%v`", reminderId)}.WithEphemeral(true))
+
+		msg := discord.NewMessageCreate().
+			WithContent(fmt.Sprintf("saved! reminder will be sent at %s \nyour reminder id is `%v`", hammertime.Format(dueAt, hammertime.LongDateTime), reminderId)).
+			WithEphemeral(isEphemeral)
+
+		if !isEphemeral {
+			msg = msg.AddActionRow(
+				joinReminderButton(reminderId),
+				leaveReminderButton(reminderId),
+			)
+		}
+		return e.CreateMessage(msg)
 	}
 }
 
-func reminderCancelHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
+func reminderCancelHandler(database *db.DB) handler.SlashCommandHandler {
 	return func(data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
 		reminderID, ok := data.OptInt("id")
 		if !ok {
 			return e.CreateMessage(discord.NewMessageCreate().WithContent("id is required!").WithEphemeral(true))
 		}
-		err := b.Scheduler.CancelReminder(int64(reminderID), int64(e.User().ID))
+		cancelled, err := database.CancelUserReminder(e.Ctx, int64(reminderID), int64(e.User().ID))
 		if err != nil {
-			return e.CreateMessage(discord.NewMessageCreate().WithContent("cancel failed... please try later").WithEphemeral(true))
+			_ = e.CreateMessage(discord.NewMessageCreate().WithContent("cancel failed... please try later").WithEphemeral(true))
+			return err
+		}
+		if !cancelled {
+			return e.CreateMessage(discord.NewMessageCreate().WithContent("no pending reminder found with that ID").WithEphemeral(true))
 		}
 		return e.CreateMessage(discord.NewMessageCreate().WithContent("cancel succeed!").WithEphemeral(true))
-
 	}
 }
 
-func reminderListHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
+func reminderListHandler(database *db.DB) handler.SlashCommandHandler {
 	return func(data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
 		userID := int64(e.User().ID)
 		isAll, _ := data.OptBool("all")
@@ -138,9 +169,10 @@ func reminderListHandler(b *azunyan2go.Bot) handler.SlashCommandHandler {
 			channelID = json.Ptr(int64(e.Channel().ID()))
 		}
 
-		urs, err := b.Scheduler.GetReminders(userID, channelID)
+		urs, err := database.GetUserReminders(e.Ctx, userID, channelID)
 		if err != nil {
-			return e.CreateMessage(discord.NewMessageCreate().WithContent("list failed... please try later").WithEphemeral(true))
+			_ = e.CreateMessage(discord.NewMessageCreate().WithContent("list failed... please try later").WithEphemeral(true))
+			return err
 		}
 
 		if len(urs) == 0 {
@@ -245,4 +277,72 @@ func ParseDueAt(timeStr, dateStr string, loc *time.Location, now time.Time) (tim
 	}
 
 	return due.UTC(), nil
+}
+
+func joinReminder(database *db.DB) handler.ButtonComponentHandler {
+	return func(data discord.ButtonInteractionData, e *handler.ComponentEvent) error {
+		userID := int64(e.User().ID)
+		reminderID, err := strconv.ParseInt(e.Vars["id"], 10, 64)
+
+		msg := discord.NewMessageCreate().
+			WithEphemeral(true)
+
+		if err != nil {
+			_ = e.CreateMessage(msg.WithContent("there are some errors when join this reminder"))
+			return fmt.Errorf("parse reminder_id %q: %w", e.Vars["id"], err)
+		}
+
+		added, err := database.AddUserReminderPing(e.Ctx, reminderID, userID)
+		if err != nil {
+			_ = e.CreateMessage(msg.WithContent("there are some errors when join this reminder"))
+			return fmt.Errorf("join reminder %d: %w", reminderID, err)
+		}
+		if added {
+			return e.CreateMessage(
+				msg.WithContent("joined successfully"),
+			)
+		} else {
+			return e.CreateMessage(
+				msg.WithContent("you have already joined"),
+			)
+		}
+	}
+}
+
+func leaveReminder(database *db.DB) handler.ButtonComponentHandler {
+	return func(data discord.ButtonInteractionData, e *handler.ComponentEvent) error {
+		userID := int64(e.User().ID)
+		reminderID, err := strconv.ParseInt(e.Vars["id"], 10, 64)
+
+		msg := discord.NewMessageCreate().
+			WithEphemeral(true)
+
+		if err != nil {
+			_ = e.CreateMessage(msg.WithContent("there are some errors when leave this reminder"))
+			return fmt.Errorf("parse reminder_id %q: %w", e.Vars["id"], err)
+		}
+
+		removed, err := database.RemoveUserReminderPing(e.Ctx, reminderID, userID)
+		if err != nil {
+			_ = e.CreateMessage(msg.WithContent("there are some errors when leave this reminder"))
+			return fmt.Errorf("leave reminder %d: %w", reminderID, err)
+		}
+		if removed {
+			return e.CreateMessage(
+				msg.WithContent("leave successfully"),
+			)
+		} else {
+			return e.CreateMessage(
+				msg.WithContent("you are not in this reminder"),
+			)
+		}
+	}
+}
+
+func joinReminderButton(reminderID int64) discord.ButtonComponent {
+    return discord.NewSuccessButton("Join", fmt.Sprintf("/reminder/join/%d", reminderID))
+}
+
+func leaveReminderButton(reminderID int64) discord.ButtonComponent {
+    return discord.NewDangerButton("Leave", fmt.Sprintf("/reminder/leave/%d", reminderID))
 }

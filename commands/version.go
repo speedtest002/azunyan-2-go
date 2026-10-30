@@ -5,8 +5,6 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/handler"
-
-	"github.com/speedtest002/azunyan-2-go/azunyan2go"
 )
 
 var versionCommand = discord.SlashCommandCreate{
@@ -14,10 +12,10 @@ var versionCommand = discord.SlashCommandCreate{
 	Description: "version command",
 }
 
-func VersionHandler(b *azunyan2go.Bot) handler.CommandHandler {
+func VersionHandler(version, commit string) handler.CommandHandler {
 	return func(e *handler.CommandEvent) error {
 		return e.CreateMessage(discord.MessageCreate{
-			Content: fmt.Sprintf("Version: %s\nCommit: %s", b.Version, b.Commit),
+			Content: fmt.Sprintf("Version: %s\nCommit: %s", version, commit),
 		})
 	}
 }

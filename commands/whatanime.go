@@ -1,20 +1,17 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/handler"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/paginator"
 
-	"github.com/speedtest002/azunyan-2-go/azunyan2go"
+	"github.com/speedtest002/azunyan-2-go/service"
 )
 
 var whatanimeSlashCommand = discord.SlashCommandCreate{
@@ -33,7 +30,7 @@ var whatanimeMessageCommand = discord.MessageCommandCreate{
 	Name: "whatanime",
 }
 
-func WhatanimeHandler(b *azunyan2go.Bot) handler.CommandHandler {
+func WhatanimeHandler(p *paginator.Manager) handler.CommandHandler {
 	return func(e *handler.CommandEvent) error {
 		var imageURL string
 		switch data := e.Data.(type) {
@@ -56,27 +53,41 @@ func WhatanimeHandler(b *azunyan2go.Bot) handler.CommandHandler {
 			}
 		}
 
-		body, err := fetchTraceMoe(imageURL)
-		if err != nil {
-			return e.CreateMessage(discord.MessageCreate{Content: err.Error()})
+		if err := e.DeferCreateMessage(false); err != nil {
+			return err
 		}
 
-		traceResult, err := buildTraceMoeAPI(body)
+		body, err := service.FetchTraceMoe(imageURL)
 		if err != nil {
-			return e.CreateMessage(discord.MessageCreate{Content: err.Error()})
+			_, _ = e.CreateFollowupMessage(discord.MessageCreate{Content: "Failed to search anime on trace.moe, please try again later."})
+			return err
 		}
 
-		filtered := slices.DeleteFunc(traceResult.Result, func(r TraceMoeResult) bool {
+		traceResult, err := service.BuildTraceMoeAPI(body)
+		if err != nil {
+			_, _ = e.CreateFollowupMessage(discord.MessageCreate{Content: "Failed to parse response from trace.moe, please try again later."})
+			return err
+		}
+
+		filtered := slices.DeleteFunc(traceResult.Result, func(r service.TraceMoeResult) bool {
 			return r.Similarity < 0.7
 		})
 		if len(filtered) == 0 {
-			return e.CreateMessage(discord.MessageCreate{Content: "No results found."})
+			_, err = e.CreateFollowupMessage(discord.MessageCreate{Content: "No results found."})
+			return err
 		}
 		if len(filtered) > 10 {
 			filtered = filtered[:10]
 		}
 
-		return b.Paginator.Create(e.Respond, paginator.Pages{
+		return p.Create(func(_ discord.InteractionResponseType, data discord.InteractionResponseData, opts ...rest.RequestOpt) error {
+			msg, ok := data.(discord.MessageCreate)
+			if !ok {
+				return nil
+			}
+			_, err := e.CreateFollowupMessage(msg, opts...)
+			return err
+		}, paginator.Pages{
 			ID: e.ID().String(),
 			PageFunc: func(page int, embed discord.Embed) discord.Embed {
 				r := filtered[page]
@@ -101,77 +112,4 @@ func WhatanimeHandler(b *azunyan2go.Bot) handler.CommandHandler {
 			ExpireMode: paginator.ExpireModeAfterLastUsage,
 		}, false)
 	}
-}
-
-const traceMoeBase = "https://api.trace.moe/search"
-
-type TraceMoeResult struct {
-	Anilist    AnilistInfo `json:"anilist"`
-	Filename   string      `json:"filename"`
-	Episode    any         `json:"episode"`
-	Duration   float64     `json:"duration"`
-	From       float64     `json:"from"`
-	To         float64     `json:"to"`
-	At         float64     `json:"at"`
-	Similarity float64     `json:"similarity"`
-	Video      string      `json:"video"`
-	Image      string      `json:"image"`
-}
-
-type TraceMoeAPI struct {
-	FrameCount int              `json:"frameCount"`
-	Error      string           `json:"error"`
-	Result     []TraceMoeResult `json:"result"`
-}
-
-type AnilistInfo struct {
-	ID       int               `json:"id"`
-	IDMal    int               `json:"idMal"`
-	Title    AnilistInfoTitles `json:"title"`
-	Synonyms []string          `json:"synonyms"`
-	IsAdult  bool              `json:"isAdult"`
-}
-
-type AnilistInfoTitles struct {
-	Native  string `json:"native"`
-	Romaji  string `json:"romaji"`
-	English any    `json:"english"`
-}
-
-func fetchTraceMoe(attURL string) ([]byte, error) {
-	apiURL := fmt.Sprintf("%s?url=%s&cutBorders&anilistInfo", traceMoeBase, url.QueryEscape(attURL))
-	resp, err := http.Get(apiURL)
-	if err != nil {
-		return nil, fmt.Errorf("Có lỗi đã xảy ra: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 413 {
-		return nil, fmt.Errorf("Lỗi: Video/Ảnh phải nhỏ hơn 25MB %d", resp.StatusCode)
-	}
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Lỗi: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("Có lỗi khi đọc body: %w", err)
-	}
-
-	return body, nil
-}
-
-func buildTraceMoeAPI(data []byte) (TraceMoeAPI, error) {
-	var result TraceMoeAPI
-
-	if err := json.Unmarshal(data, &result); err != nil {
-		return TraceMoeAPI{}, fmt.Errorf("lỗi parse JSON: %w", err)
-	}
-
-	if result.Error != "" {
-		return TraceMoeAPI{}, fmt.Errorf("lỗi: %s", result.Error)
-	}
-
-	return result, nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/disgoorg/paginator"
 
 	"github.com/speedtest002/azunyan-2-go/db"
+	"github.com/speedtest002/azunyan-2-go/service"
 )
 
 func New(cfg Config, version string, commit string) *Bot {
@@ -34,16 +35,15 @@ type Bot struct {
 	Version string
 	Commit  string
 
-	Banks   []Bank
-	BankMap map[string]*Bank
-
-	Scheduler *Scheduler
+	VietQR    *service.VietQRService
+	Scheduler *service.Scheduler
 }
 
 func (b *Bot) SetupBot(listeners ...bot.EventListener) error {
 	client, err := disgo.New(b.Cfg.Bot.Token,
 		bot.WithGatewayConfigOpts(gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMessages, gateway.IntentMessageContent)),
 		bot.WithCacheConfigOpts(cache.WithCaches(cache.FlagGuilds)),
+		bot.WithEventListenerFunc(b.OnReady),
 		bot.WithEventListeners(b.Paginator),
 		bot.WithEventListeners(listeners...),
 	)

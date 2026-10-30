@@ -15,6 +15,8 @@ import (
 	"github.com/speedtest002/azunyan-2-go/commands"
 	"github.com/speedtest002/azunyan-2-go/db"
 	"github.com/speedtest002/azunyan-2-go/handlers"
+	"github.com/speedtest002/azunyan-2-go/middleware"
+	"github.com/speedtest002/azunyan-2-go/service"
 )
 
 var (
@@ -37,33 +39,52 @@ func main() {
 	slog.Info("Starting azunyan-2-go...", slog.String("version", Version), slog.String("commit", Commit))
 	slog.Info("Syncing commands", slog.Bool("sync", *shouldSyncCommands))
 
-	b := azunyan2go.New(*cfg, Version, Commit)
-
-	h := handler.New()
-	commands.Register(h, b)
-	h.Use(commands.LoggingMiddleware)
-	b.SetupBot(h, handlers.FetchQrHandler(b), handlers.AutoQrHandler(b))
-
 	database, err := db.Connect(cfg.Database.User, cfg.Database.Password, cfg.Database.Dsn)
 	if err != nil {
 		slog.Error("DB connect failed", "err", err)
 		os.Exit(-1)
 	}
-	b.DB = database
 	slog.Info("Connected to DB")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	b.DB.StartKeepAlive(ctx)
 
-	b.Scheduler = azunyan2go.NewScheduler(b.DB, b.Client, 30*time.Second)
+	if err := database.Migrate(ctx); err != nil {
+		slog.Error("DB migration failed", "err", err)
+		os.Exit(-1)
+	}
+
+	database.StartKeepAlive(ctx)
+
+	b := azunyan2go.New(*cfg, Version, Commit)
+	b.DB = database
+
+	vietQR, err := service.NewVietQRService()
+	if err != nil {
+		slog.Error("Failed to fetch banks from VietQR", "err", err)
+	}
+	b.VietQR = vietQR
+
+	h := handler.New()
+	h.Use(middleware.Recover, middleware.LoggingMiddleware)
+
+	if err = b.SetupBot(h); err != nil {
+		slog.Error("Failed to setup bot", slog.Any("err", err))
+		os.Exit(-1)
+	}
+
+	b.Scheduler = service.NewScheduler(b.DB, b.Client, 30*time.Second)
 	b.Scheduler.Start()
+
+	commands.Register(h, b)
+	handlers.Register(b)
 
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		b.DB.Close()
 		b.Client.Close(shutdownCtx)
+		b.Scheduler.Shutdown()
+		b.DB.Close()
 	}()
 
 	if *shouldSyncCommands {

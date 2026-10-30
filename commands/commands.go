@@ -20,7 +20,7 @@ var Commands = []discord.ApplicationCommandCreate{
 }
 
 func Register(h handler.Router, b *azunyan2go.Bot) {
-	h.Command("/version", VersionHandler(b))
+	h.Command("/version", VersionHandler(b.Version, b.Commit))
 
 	h.Command("/ping", PingHandler)
 
@@ -29,16 +29,18 @@ func Register(h handler.Router, b *azunyan2go.Bot) {
 
 	h.SlashCommand("/sleep", SleepHandler)
 
-	h.Command("/whatanime", WhatanimeHandler(b))
+	h.Command("/whatanime", WhatanimeHandler(b.Paginator))
 
 	h.Route("/qr", func(cr handler.Router) {
-		cr.SlashCommand("/save", qrSaveHandler(b))
-		cr.SlashCommand("/send", qrSendHandler(b))
+		cr.SlashCommand("/save", qrSaveHandler(b.DB))
+		cr.SlashCommand("/send", qrSendHandler(b.DB))
 	})
 
-	h.Route("/remind", func(cr handler.Router) {
-		cr.SlashCommand("/create", reminderCreateHandler(b))
-		cr.SlashCommand("/cancel", reminderCancelHandler(b))
-		cr.SlashCommand("/list", reminderListHandler(b))
+	h.Route("/reminder", func(cr handler.Router) {
+		cr.SlashCommand("/create", reminderCreateHandler(b.DB, b.Scheduler))
+		cr.SlashCommand("/cancel", reminderCancelHandler(b.DB))
+		cr.SlashCommand("/list", reminderListHandler(b.DB))
+		cr.ButtonComponent("/join/{id}", joinReminder(b.DB))
+		cr.ButtonComponent("/leave/{id}", leaveReminder(b.DB))
 	})
 }
