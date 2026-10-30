@@ -5,3 +5,5 @@ config.json
 config.json.example
 config.toml
 config.example.toml
+.git/
+.github/
