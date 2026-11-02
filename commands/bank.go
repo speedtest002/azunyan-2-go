@@ -10,13 +10,18 @@ import (
 )
 
 var qrCommand = discord.SlashCommandCreate{
-	Name:        "qr",
-	Description: "QR code commands",
+	Name:        "bank",
+	Description: "bank commands",
 	Options: []discord.ApplicationCommandOption{
 		discord.ApplicationCommandOptionSubCommand{
-			Name:        "send",
-			Description: "send VietQR",
+			Name:        "qr",
+			Description: "send qr VietQR",
 			Options: []discord.ApplicationCommandOption{
+				discord.ApplicationCommandOptionUser{
+					Name: "user",
+					Description: "lấy qr của người khác",
+					Required: false,
+				},
 				discord.ApplicationCommandOptionInt{
 					Name:        "amount",
 					Description: "số tiền",
@@ -69,7 +74,14 @@ func qrSaveHandler(database *db.DB) handler.SlashCommandHandler {
 
 func qrSendHandler(database *db.DB) handler.SlashCommandHandler {
 	return func(data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
-		userID := int64(e.User().ID)
+		var userID int64
+	
+		if member, ok := data.OptMember("amount"); ok {
+			userID = int64(member.User.ID)
+		} else {
+			userID = int64(e.User().ID)
+		}
+
 		userBankInfo, err := database.GetUserBankInfo(e.Ctx, userID)
 		if err != nil {
 			_ = e.CreateMessage(discord.MessageCreate{Content: "error... thử lại sau"}.WithEphemeral(true))
