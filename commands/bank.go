@@ -1,6 +1,9 @@
 package commands
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/json"
@@ -18,9 +21,9 @@ var qrCommand = discord.SlashCommandCreate{
 			Description: "send qr VietQR",
 			Options: []discord.ApplicationCommandOption{
 				discord.ApplicationCommandOptionUser{
-					Name: "user",
+					Name:        "user",
 					Description: "lấy qr của người khác",
-					Required: false,
+					Required:    false,
 				},
 				discord.ApplicationCommandOptionInt{
 					Name:        "amount",
@@ -74,28 +77,65 @@ func qrSaveHandler(database *db.DB) handler.SlashCommandHandler {
 
 func qrSendHandler(database *db.DB) handler.SlashCommandHandler {
 	return func(data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
-		var userID int64
-	
-		if member, ok := data.OptMember("amount"); ok {
-			userID = int64(member.User.ID)
-		} else {
-			userID = int64(e.User().ID)
+		targetUser := e.User()
+		if u, ok := data.OptUser("user"); ok {
+			targetUser = u
 		}
+		userID := int64(targetUser.ID)
 
 		userBankInfo, err := database.GetUserBankInfo(e.Ctx, userID)
 		if err != nil {
-			_ = e.CreateMessage(discord.MessageCreate{Content: "error... thử lại sau"}.WithEphemeral(true))
+			_ = e.CreateMessage(discord.MessageCreate{Content: "error from server, please try later"}.WithEphemeral(true))
 			return err
 		}
 		if userBankInfo.AccountNumber == "" || userBankInfo.Bank == "" {
-			return e.CreateMessage(discord.MessageCreate{Content: "you have not saved your bank info yet, use `/qr save`"}.WithEphemeral(true))
+			return e.CreateMessage(discord.MessageCreate{Content: "you have not saved your bank info yet, use `/bank save`"}.WithEphemeral(true))
 		}
 
 		amount, _ := data.OptInt("amount")
 		description, _ := data.OptString("description")
 
-		embed := service.BuildQREmbed(userBankInfo.Bank, userBankInfo.AccountNumber, amount, description, e.User())
+		embed := service.BuildQREmbed(userBankInfo.Bank, userBankInfo.AccountNumber, amount, description, targetUser)
 
-		return e.CreateMessage(discord.NewMessageCreate().AddEmbeds(embed))
+		return e.CreateMessage(discord.NewMessageCreate().
+			AddEmbeds(embed).
+			AddActionRow(service.DeeplinkButton()),
+		)
+	}
+}
+
+func deeplinkButtonHandler(database *db.DB) handler.ButtonComponentHandler {
+	return func(data discord.ButtonInteractionData, e *handler.ComponentEvent) error {
+		userBankInfo, err := database.GetUserBankInfo(e.Ctx, int64(e.User().ID))
+		if err != nil {
+			_ = e.CreateMessage(discord.NewMessageCreate().WithContent("error from server, please try later").WithEphemeral(true))
+			return err
+		}
+		if userBankInfo.Bank == "" {
+			return e.CreateMessage(discord.NewMessageCreate().
+				WithContent("you have not saved your bank info yet, use `/bank save`").
+				WithEphemeral(true))
+		}
+
+		if len(e.Message.Embeds) == 0 || e.Message.Embeds[0].Author == nil || e.Message.Embeds[0].Author.URL == "" {
+			return e.CreateMessage(discord.NewMessageCreate().
+				WithContent("cannot find payment info in this message").
+				WithEphemeral(true))
+		}
+
+		dlURL, err := service.WithDeepLinkApp(e.Message.Embeds[0].Author.URL, userBankInfo.Bank)
+		if err != nil {
+			_ = e.CreateMessage(discord.NewMessageCreate().WithContent("failed to build payment link").WithEphemeral(true))
+			return err
+		}
+
+		bankLabel := strings.ToUpper(userBankInfo.Bank)
+		return e.CreateMessage(discord.NewMessageCreate().
+			WithContent(fmt.Sprintf("Mở ứng dụng **%s** trên điện thoại để chuyển tiền\nHiện tại chỉ hỗ trợ điền nhanh thông tin chuyển khoản ở các ứng dụng VietinBank iPay, BIDV SmartBanking, OCB OMNI, ACB ONE ", bankLabel)).
+			AddActionRow(
+				discord.NewLinkButton("Android", dlURL),
+				discord.NewLinkButton("iOS", dlURL),
+			).
+			WithEphemeral(true))
 	}
 }

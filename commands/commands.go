@@ -31,9 +31,10 @@ func Register(h handler.Router, b *azunyan2go.Bot) {
 
 	h.Command("/whatanime", WhatanimeHandler(b.Paginator))
 
-	h.Route("/qr", func(cr handler.Router) {
+	h.Route("/bank", func(cr handler.Router) {
 		cr.SlashCommand("/save", qrSaveHandler(b.DB))
-		cr.SlashCommand("/send", qrSendHandler(b.DB))
+		cr.SlashCommand("/qr", qrSendHandler(b.DB))
+		cr.ButtonComponent("/deeplink", deeplinkButtonHandler(b.DB))
 	})
 
 	h.Route("/reminder", func(cr handler.Router) {

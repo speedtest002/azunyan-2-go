@@ -44,8 +44,11 @@ func AutoQrHandler(qr *service.VietQRService) bot.EventListener {
 			return
 		}
 
-		embed := service.BuildQREmbed(bank.Bin, stk, 0, "", e.Message.Author)
-		if _, err := e.Client().Rest.CreateMessage(e.ChannelID, discord.NewMessageCreate().AddEmbeds(embed)); err != nil {
+		embed := service.BuildQREmbed(bank.Code, stk, 0, "", e.Message.Author)
+		qrMsg := discord.NewMessageCreate().
+			AddEmbeds(embed).
+			AddActionRow(service.DeeplinkButton())
+		if _, err := e.Client().Rest.CreateMessage(e.ChannelID, qrMsg); err != nil {
 			slog.Error("auto_qr: failed to send message", "channel_id", e.ChannelID, "guild_id", e.GuildID, "user_id", e.Message.Author.ID, "err", err)
 		}
 	})
