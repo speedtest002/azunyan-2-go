@@ -46,7 +46,6 @@ var reminderCommand = discord.SlashCommandCreate{
 					Description: "only you can see this message (default is false)",
 					Required:    false,
 				},
-
 			},
 		},
 		discord.ApplicationCommandOptionSubCommand{
@@ -279,7 +278,7 @@ func ParseDueAt(timeStr, dateStr string, loc *time.Location, now time.Time) (tim
 	return due.UTC(), nil
 }
 
-func joinReminder(database *db.DB) handler.ButtonComponentHandler {
+func joinReminderButtonReminder(database *db.DB) handler.ButtonComponentHandler {
 	return func(data discord.ButtonInteractionData, e *handler.ComponentEvent) error {
 		userID := int64(e.User().ID)
 		reminderID, err := strconv.ParseInt(e.Vars["id"], 10, 64)
@@ -309,7 +308,7 @@ func joinReminder(database *db.DB) handler.ButtonComponentHandler {
 	}
 }
 
-func leaveReminder(database *db.DB) handler.ButtonComponentHandler {
+func leaveReminderButtonHandler(database *db.DB) handler.ButtonComponentHandler {
 	return func(data discord.ButtonInteractionData, e *handler.ComponentEvent) error {
 		userID := int64(e.User().ID)
 		reminderID, err := strconv.ParseInt(e.Vars["id"], 10, 64)
@@ -340,9 +339,9 @@ func leaveReminder(database *db.DB) handler.ButtonComponentHandler {
 }
 
 func joinReminderButton(reminderID int64) discord.ButtonComponent {
-    return discord.NewSuccessButton("Join", fmt.Sprintf("/reminder/join/%d", reminderID))
+	return discord.NewSuccessButton("Join", fmt.Sprintf("/reminder/join/%d", reminderID))
 }
 
 func leaveReminderButton(reminderID int64) discord.ButtonComponent {
-    return discord.NewDangerButton("Leave", fmt.Sprintf("/reminder/leave/%d", reminderID))
+	return discord.NewDangerButton("Leave", fmt.Sprintf("/reminder/leave/%d", reminderID))
 }

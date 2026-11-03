@@ -40,7 +40,7 @@ func Register(h handler.Router, b *azunyan2go.Bot) {
 		cr.SlashCommand("/create", reminderCreateHandler(b.DB, b.Scheduler))
 		cr.SlashCommand("/cancel", reminderCancelHandler(b.DB))
 		cr.SlashCommand("/list", reminderListHandler(b.DB))
-		cr.ButtonComponent("/join/{id}", joinReminder(b.DB))
-		cr.ButtonComponent("/leave/{id}", leaveReminder(b.DB))
+		cr.ButtonComponent("/join/{id}", joinReminderButtonReminder(b.DB))
+		cr.ButtonComponent("/leave/{id}", leaveReminderButtonHandler(b.DB))
 	})
 }
